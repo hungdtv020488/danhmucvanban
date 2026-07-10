@@ -4,6 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0a3d62">
 <title>Danh mục văn bản</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <style>
 :root{--ink:#101827;--muted:#697588;--line:#e6eaf0;--bg:#eef2f6;--brand:#0a3d62;--brand2:#1469a3;--accent:#c0392b;--ok:#1e8449}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -48,6 +49,16 @@ header h1{margin:0;font-size:16px;font-weight:700}
 .empty{text-align:center;color:var(--muted);font-size:14px;padding:16px 0}
 .foot{display:flex;justify-content:flex-end;gap:14px;margin-top:6px}
 .warn{display:none;background:#fdf3e7;border:1px solid #f6d9a8;color:#8a5a00;padding:11px 12px;border-radius:11px;font-size:13px;margin-bottom:14px;line-height:1.5}
+.divider{display:flex;align-items:center;gap:10px;margin:14px 2px 6px;color:var(--muted);font-size:12px}
+.divider:before,.divider:after{content:"";flex:1;height:1px;background:var(--line)}
+.up{display:block;text-align:center;border:1.5px dashed var(--line);border-radius:11px;padding:13px;color:var(--brand2);font-size:14px;font-weight:600;background:#fbfdfe}
+.up input{display:none}
+.cprev{margin-top:8px;text-align:center}
+.cprev img{max-width:100%;max-height:180px;border-radius:9px;border:1px solid var(--line)}
+.ocrp{display:none;margin-top:9px;font-size:12px;color:var(--muted)}
+.ocrp .bar{height:7px;background:#e6eaf0;border-radius:6px;overflow:hidden;margin-top:4px}
+.ocrp .bar>i{display:block;height:100%;width:0;background:var(--brand2);transition:.2s}
+.ocrs{display:none;margin-top:9px;font-size:12px;line-height:1.5;padding:8px 10px;border-radius:9px;background:#eef4fb;color:#234;border:1px solid #d7e6f4}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:24px;font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:20}
 .toast.show{opacity:1}
 .note{font-size:11.5px;color:var(--muted);text-align:center;margin-top:10px}
@@ -61,6 +72,13 @@ header h1{margin:0;font-size:16px;font-weight:700}
     <button class="mic" id="mic" aria-label="Bấm để nói">🎤</button>
     <div class="hint" id="hint">Bấm micro rồi đọc, ví dụ:<br><b>“Công văn số 1234 ngày 15 tháng 3 năm 2026, bản chính”</b><br>Nói thêm “bản chính” hoặc “photo” để đánh dấu.</div>
     <div class="heard" id="heard"></div>
+    <div class="divider">hoặc chụp ảnh văn bản</div>
+    <label class="up">📷 Chụp ảnh hoặc chọn từ thư viện
+      <input id="docFile" type="file" accept="image/*">
+    </label>
+    <div class="cprev" id="cprev"></div>
+    <div class="ocrp" id="ocrp">Đang nhận dạng… <span id="ocrpct">0%</span><div class="bar"><i id="ocrbar"></i></div></div>
+    <div class="ocrs" id="ocrs"></div>
     <div class="two">
       <div class="f"><label>Loại văn bản</label><input id="loai" placeholder="Công văn"></div>
       <div class="f"><label>Số</label><input id="so" placeholder="1234/CV-BX"></div>
@@ -168,9 +186,22 @@ function extractTrichyeu(text){
   var m2=low.match(/năm\s+\S+\s+(.+)$/);
   if(m2){var i=low.lastIndexOf(m2[1]);var t2=text.slice(i).replace(/^[\s.,:]+|[\s.,:]+$/g,"");return t2.length>4?cap(t2):"";}
   return "";}
+var TYPE_CODE={"CV":"Công văn","QĐ":"Quyết định","QD":"Quyết định","NQ":"Nghị quyết","NĐ":"Nghị định","ND":"Nghị định","TT":"Thông tư","TB":"Thông báo","TTR":"Tờ trình","BC":"Báo cáo","KH":"Kế hoạch","HD":"Hướng dẫn","HĐ":"Hợp đồng","BB":"Biên bản","CT":"Chỉ thị","QC":"Quy chế","PL":"Phụ lục","GM":"Giấy mời"};
+function typeFromCode(s){if(!s)return "";
+  var m=(""+s).match(/\/\s*([A-Za-zĐđ]{2,4})/);
+  if(m){var c=m[1].toUpperCase();if(TYPE_CODE[c])return TYPE_CODE[c];}
+  return "";}
 function parseDocument(t){t=(t||"").trim();
   var tc=stripFormWords(t);
-  return {loai:detectType(t),so:extractSo(t),ngay:extractDate(t),form:detectForm(t),trichyeu:extractTrichyeu(tc)};}
+  var so=extractSo(t);
+  var loai=detectType(t)||typeFromCode(so);
+  return {loai:loai,so:so,ngay:extractDate(t),form:detectForm(t),trichyeu:extractTrichyeu(tc)};}
+function fillFromDoc(d){
+  if(d.loai)$("loai").value=d.loai;
+  if(d.so)$("so").value=d.so;
+  if(d.ngay)$("ngay").value=d.ngay;
+  if(d.form)setForm(d.form);
+  if(d.trichyeu)$("trichyeu").value=d.trichyeu;}
 
 /* ---- Bản chính / Photo (toggle) ---- */
 var formVal="";
@@ -226,6 +257,39 @@ $("export").onclick=function(){
   toast("Đã tạo file CSV");
 };
 
+/* ---- Chụp ảnh văn bản + OCR ---- */
+function ocrSetStatus(m){var e=$("ocrs");e.textContent=m||"";e.style.display=m?"block":"none";}
+function ocrVN(s){var map={"loading tesseract core":"Đang tải lõi OCR…","initializing tesseract":"Đang khởi tạo…","initialized tesseract":"Đã khởi tạo","loading language traineddata":"Đang tải dữ liệu tiếng Việt (vài MB)…","loaded language traineddata":"Đã tải dữ liệu tiếng Việt","initializing api":"Đang chuẩn bị…","initialized api":"Sẵn sàng","recognizing text":"Đang nhận dạng chữ…"};return map[s]||s;}
+function loadDownscaled(file,maxDim){return new Promise(function(res,rej){var img=new Image();img.onload=function(){var w=img.naturalWidth||img.width,h=img.naturalHeight||img.height,sc=Math.min(1,maxDim/Math.max(w,h)),cw=Math.max(1,Math.round(w*sc)),ch=Math.max(1,Math.round(h*sc)),c=document.createElement("canvas");c.width=cw;c.height=ch;c.getContext("2d").drawImage(img,0,0,cw,ch);try{res(c.toDataURL("image/jpeg",0.92));}catch(e){rej(e);}};img.onerror=function(){rej(new Error("Không đọc được ảnh"));};var fr=new FileReader();fr.onload=function(){img.src=fr.result;};fr.onerror=rej;fr.readAsDataURL(file);});}
+var docImg="",ocrWorker=null;
+$("docFile").onchange=function(e){var f=e.target.files[0];if(!f)return;
+  loadDownscaled(f,2000).then(function(u){docImg=u;$("cprev").innerHTML='<img src="'+u+'">';ocrSetStatus("");runDocOCR();})
+    .catch(function(err){toast("Lỗi ảnh: "+err.message);});};
+function runDocOCR(){
+  if(!docImg)return;
+  if(typeof Tesseract==="undefined"||!Tesseract.createWorker){ocrSetStatus("Không tải được thư viện OCR — mạng có thể chặn cdn.jsdelivr.net. Kiểm tra Internet rồi tải lại trang.");return;}
+  $("ocrp").style.display="block";$("ocrpct").textContent="0%";$("ocrbar").style.width="0%";
+  ocrSetStatus("Đang chuẩn bị công cụ OCR (lần đầu tải vài MB)…");
+  function work(){ocrSetStatus("Đang nhận dạng chữ…");
+    return ocrWorker.recognize(docImg).then(function(r){
+      var txt=(r&&r.data&&r.data.text)||"";
+      if(txt.trim()){fillFromDoc(parseDocument(txt));ocrSetStatus("Đã nhận dạng — đã điền loại/số/ngày, soát lại rồi bấm Lưu.");}
+      else ocrSetStatus("Không đọc được chữ. Chụp rõ phần đầu văn bản (tên loại, số, ngày), đủ sáng, chụp thẳng.");
+    });
+  }
+  var start;
+  if(ocrWorker){start=work();}
+  else{start=Tesseract.createWorker("vie",1,{
+      workerPath:"https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js",
+      corePath:"https://cdn.jsdelivr.net/npm/tesseract.js-core@5",
+      langPath:"https://tessdata.projectnaptha.com/4.0.0",
+      logger:function(m){if(m.status){var p=(typeof m.progress==="number")?" "+Math.round(m.progress*100)+"%":"";ocrSetStatus(ocrVN(m.status)+p);}
+        if(m.status==="recognizing text"&&typeof m.progress==="number"){var q=Math.round(m.progress*100);$("ocrpct").textContent=q+"%";$("ocrbar").style.width=q+"%";}}
+    }).then(function(w){ocrWorker=w;return work();});}
+  start.catch(function(err){ocrSetStatus("Lỗi OCR: "+((err&&err.message)||err)+".");})
+       .then(function(){$("ocrp").style.display="none";});
+}
+
 /* ---- Giọng nói ---- */
 var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 var rec=null,recording=false,finalText="";
@@ -247,12 +311,7 @@ if(!SR){
     else if(ev.error==="no-speech")toast("Không nghe thấy giọng nói");
     else toast("Lỗi: "+ev.error);};
   rec.onend=function(){stopUI();
-    if(finalText.trim()){var d=parseDocument(finalText.trim());
-      if(d.loai)$("loai").value=d.loai;
-      if(d.so)$("so").value=d.so;
-      if(d.ngay)$("ngay").value=d.ngay;
-      if(d.form)setForm(d.form);
-      if(d.trichyeu)$("trichyeu").value=d.trichyeu;
+    if(finalText.trim()){fillFromDoc(parseDocument(finalText.trim()));
       toast("Đã tách dữ liệu — kiểm tra rồi bấm Lưu");}};
   $("mic").onclick=function(){if(recording){rec.stop();}else{finalText="";
     var h=$("heard");h.style.display="block";h.textContent="Đang nghe…";
